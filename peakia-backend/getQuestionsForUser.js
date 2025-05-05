@@ -17,7 +17,7 @@ exports.handler = async (event) => {
     }).promise();
 
     // Logique simple : si trop de bonnes réponses -> augmenter difficulté
-    const correctRate = answers.Items.filter((a) => a.correct).length / answers.Items.length;
+    // const correctRate = answers.Items.filter((a) => a.correct).length / answers.Items.length;
     const questions = await dynamoDb.scan({
         TableName: "PeakIA",
         FilterExpression: "#type = :type",

@@ -1,16 +1,18 @@
 // Lambda 2: generateNewQuestions.js
-import AWS from 'aws-sdk';
-import {OpenAI} from "openai";
-
-const dynamoDb = new AWS.DynamoDB.DocumentClient();
-
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
 exports.handler = async (event) => {
-    const topic = event.queryStringParameters.topic;
+    const AWS = require("aws-sdk");
+    const { default: OpenAI } = require("openai");
+    console.log("openIA imported")
+    console.log("AWS imported")
 
-    const questions = await generateQuestionsFromAssistant(topic);
-    console.log(questions)
+    const dynamoDb = new AWS.DynamoDB.DocumentClient();
+
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+    const topic = event.queryStringParameters?.topic;
+
+    const questions = await generateQuestionsFromAssistant(topic, openai);
+    console.log("Questions generated: ", questions);
 
     if (!questions.length) {
         return {
@@ -47,12 +49,13 @@ exports.handler = async (event) => {
     };
 };
 
-async function generateQuestionsFromAssistant(topic) {
+async function generateQuestionsFromAssistant(topic, openai) {
     const thread = await openai.beta.threads.create();
+    console.log("thread", thread)
 
     await openai.beta.threads.messages.create(thread.id, {
         role: "user",
-        content: `Generate 5 training questions related to: ${topic}`
+        content: `Generate 10 training questions related to: ${topic}`
     });
 
     const run = await openai.beta.threads.runs.create(thread.id, {
@@ -65,12 +68,15 @@ async function generateQuestionsFromAssistant(topic) {
         runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
     } while (runStatus.status !== "completed" && runStatus.status !== "failed");
 
+
     if (runStatus.status === "failed") {
         console.error("Run failed:", runStatus);
         return [];
     }
 
     const messages = await openai.beta.threads.messages.list(thread.id);
+    console.log("messages", messages)
+
     const latest = messages.data.find(m => m.role === "assistant");
 
     if (!latest || !latest.content || !latest.content[0].text?.value) {
@@ -78,12 +84,21 @@ async function generateQuestionsFromAssistant(topic) {
         return [];
     }
 
-    const raw = latest.content[0].text.value;
+
+    const raw = latest.content[0].text.value.trim();
+
+    // Nettoie les éventuels blocs ```json ou ``` si jamais l'assistant les inclut malgré tout
+    const cleanRaw = raw.replace(/```json|```/g, "").trim();
+
     try {
-        const parsed = JSON.parse(raw);
-        return parsed.questions || [];
+        const parsed = JSON.parse(cleanRaw);
+        if (!Array.isArray(parsed.questions)) {
+            console.error("Parsed data does not contain a valid 'questions' array:", parsed);
+            return [];
+        }
+        return parsed.questions;
     } catch (e) {
-        console.error("JSON parsing error:", raw);
+        console.error("JSON parsing error:", cleanRaw);
         return [];
     }
 }
